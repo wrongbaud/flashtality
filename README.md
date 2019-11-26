@@ -1,5 +1,11 @@
-# Hello World Example
+# Flashtality
+Finish Him!
 
-Starts a FreeRTOS task to print "Hello World"
+## What
+Simple ESP32 program to extract parallel flash (slowly) over i2c using MCP23017 ICs.
 
-See the README.md file in the upper level 'examples' directory for more information about examples.
+## How
+
+## Issues
+
+## Wiring
