@@ -1,6 +1,0 @@
-source "/home/wrongbaud/esp/esp-idf/components/efuse/Kconfig"
-source "/home/wrongbaud/esp/esp-idf/components/esp32/Kconfig"
-source "/home/wrongbaud/esp/esp-idf/components/esp_common/Kconfig"
-source "/home/wrongbaud/esp/esp-idf/components/freertos/Kconfig"
-source "/home/wrongbaud/esp/esp-idf/components/log/Kconfig"
-source "/home/wrongbaud/esp/esp-idf/components/spi_flash/Kconfig"
