@@ -47,6 +47,7 @@
 #define GPIO_WE 17
 #define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OE) | (1ULL<<GPIO_CE) | (1ULL << GPIO_WE))
 
+uint16_t ReadFlash(int address);
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
 
@@ -69,10 +70,15 @@ int MCP_ADDR_1 = 0x20;
 int MCP_ADDR_2 = 0x21;
 int MCP_DATA = 0x22;
 
-static void do_retransmit(const int sock)
+static void process_cmd(const int sock)
 {
     int len;
     char rx_buffer[128];
+    char * cmd_tok;
+    char * start_addr;
+    char * size_str;
+    int addr,size;
+    
 
     do {
         len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
@@ -83,7 +89,43 @@ static void do_retransmit(const int sock)
         } else {
             rx_buffer[len] = 0; // Null-terminate whatever is received and treat it like a string
             ESP_LOGI(TAG, "Received %d bytes: %s", len, rx_buffer);
-
+            cmd_tok = strtok(rx_buffer,":");
+            if(cmd_tok == NULL){
+                ESP_LOGI(TAG,"Invalid command recieved!");
+                return;
+            }
+            if(!strcmp(cmd_tok,"r")){
+                start_addr = strtok(NULL,":");  
+                if(start_addr == NULL){
+                    ESP_LOGI(TAG,"Invalid start address! Exiting command loop now");
+                    return;
+                }
+                ESP_LOGI(TAG,"start_addr: %s",start_addr);
+                addr = strtol(start_addr,NULL,16);
+                ESP_LOGI(TAG,"addr: 0x%x",addr);
+                size_str = strtok(NULL,":");  
+                if (size_str == NULL){
+                    ESP_LOGI(TAG,"Invalid size! Exiting command loop now");
+                    return;
+                }
+                ESP_LOGI(TAG,"size: %s",size_str);
+                size = strtol(size_str,NULL,16);
+                ESP_LOGI(TAG,"size: 0x%x",size);
+            }else{
+                ESP_LOGI(TAG,"Command not recognized");
+                return;
+            }
+            int to_write = size;
+            while(to_write>0){
+                uint16_t dword = ReadFlash((size-to_write)/2);
+                int written = send(sock, &dword, sizeof(dword), 0);
+                if(written<0){
+                    ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+                }
+                to_write -= written;
+            }
+            /*
+            }
             // send() can return less bytes than supplied length.
             // Walk-around for robust implementation. 
             int to_write = len;
@@ -94,6 +136,7 @@ static void do_retransmit(const int sock)
                 }
                 to_write -= written;
             }
+            */
         }
     } while (len > 0);
 }
@@ -164,10 +207,10 @@ static void tcp_server_task(void *pvParameters)
         }
         ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str);
 
-        do_retransmit(sock);
+        process_cmd(sock);
 
-        shutdown(sock, 0);
-        close(sock);
+        //shutdown(sock, 0);
+        //close(sock);
     }
 
 CLEAN_UP:
@@ -289,9 +332,10 @@ void MXICWriteAddr(int address){
     write_mcp_register(MCP_ADDR_2,GPIOA,((address>>16)&0xFF));
 }
 
-void MXICReadData(int mcp_addr,int flash_addr){
+uint16_t MXICReadData(int mcp_addr,int flash_addr){
     uint8_t dath = 0;
     uint8_t datl = 0;
+    uint16_t dword = 0;
     esp_err_t i2c_ret = ESP_OK;
     // Perform a write operation to tell the IC what register we want to read from
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -310,21 +354,28 @@ void MXICReadData(int mcp_addr,int flash_addr){
     i2c_master_stop(cmd);
     i2c_ret = i2c_master_cmd_begin(I2C_NUM_0,cmd,(.1/portTICK_RATE_MS));
     i2c_cmd_link_delete(cmd);
-
+    dword = dath;
+    dword = dword << 8;
+    dword |= datl;
+    return dword;
+    /*
     printf("%X:%X:",dath,datl);
     if(flash_addr % 16 == 0){
         printf("\r\n");
     }
+    */
 }
 
-void ReadFlash(int addr){
+uint16_t ReadFlash(int addr){
     // Enable the chip as well as output!
+    uint16_t dword = 0;
     gpio_set_level(GPIO_CE,0);
     gpio_set_level(GPIO_OE,0);
     MXICWriteAddr(addr);
-    MXICReadData(MCP_DATA,addr);
+    dword = MXICReadData(MCP_DATA,addr);
     gpio_set_level(GPIO_CE,1);
     gpio_set_level(GPIO_OE,1);
+    return dword;
 }
 
 void app_main(void)
@@ -341,7 +392,6 @@ void app_main(void)
     esp_netif_init();
     xTaskCreate(tcp_server_task, "tcp_server", 4096, NULL, 5, NULL);
     // Now dump flash
-    /*
     uint16_t data = 0; 
     i2c_init();
     gpio_configure();
@@ -349,6 +399,7 @@ void app_main(void)
     int addr =0;
     gpio_set_level(GPIO_CE,1);
     gpio_set_level(GPIO_OE,1);
+    /*
     unsigned int uptime = esp_log_timestamp();
     printf("\r\nStarting Flash Dump\r\n");
     for(addr=0;addr<0x200000;addr++){
